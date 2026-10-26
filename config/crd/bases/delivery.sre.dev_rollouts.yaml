@@ -1,0 +1,117 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.5
+  name: rollouts.delivery.sre.dev
+spec:
+  group: delivery.sre.dev
+  names:
+    kind: Rollout
+    listKind: RolloutList
+    plural: rollouts
+    shortNames:
+      - ro
+    singular: rollout
+  scope: Namespaced
+  versions:
+    - additionalPrinterColumns:
+        - jsonPath: .status.phase
+          name: Phase
+          type: string
+        - jsonPath: .status.currentWeight
+          name: Weight
+          type: integer
+        - jsonPath: .status.currentStepIndex
+          name: Step
+          type: integer
+        - jsonPath: .spec.template.spec.containers[0].image
+          name: Image
+          type: string
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: Rollout 描述一次渐进式（金丝雀）发布，由 Rollout Operator 调谐。
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: RolloutSpec 定义期望状态。
+              properties:
+                analysis:
+                  description: 指标分析配置（Prometheus）。
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                ingress:
+                  description: 对外暴露配置。
+                  properties:
+                    className:
+                      description: IngressClass 名称，例如 nginx。
+                      type: string
+                    host:
+                      description: 域名。
+                      type: string
+                    path:
+                      default: /
+                      description: 路由路径。
+                      type: string
+                  type: object
+                port:
+                  default: 80
+                  description: Service 与容器端口。
+                  format: int32
+                  maximum: 65535
+                  minimum: 1
+                  type: integer
+                replicas:
+                  default: 1
+                  description: 期望副本数。
+                  format: int32
+                  minimum: 0
+                  type: integer
+                strategy:
+                  description: 发布策略。
+                  properties:
+                    blueGreen:
+                      description: 蓝绿策略（预留）。
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    canary:
+                      description: 金丝雀策略：step 列表按顺序执行。
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    type:
+                      description: 策略类型。
+                      enum:
+                        - Canary
+                        - BlueGreen
+                      type: string
+                  required:
+                    - type
+                  type: object
+                template:
+                  description: Pod 模板，Operator 据此生成稳定版本与金丝雀版本 Deployment。
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+              required:
+                - strategy
+                - template
+              type: object
+            status:
+              description: RolloutStatus 由 Operator 维护。
+              type: object
+              x-kubernetes-preserve-unknown-fields: true
+          type: object
+      served: true
+      storage: true
+      subresources:
+        status: {}
+
+        # 嗯

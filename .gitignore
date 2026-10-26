@@ -1,0 +1,22 @@
+﻿# 编译产物
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# 测试与覆盖率
+*.test
+*.out
+coverage.txt
+
+# Go 工作区
+vendor/
+
+# IDE / 系统
+.idea/
+.vscode/
+.DS_Store
+
+# 本地环境变量 / 密钥
+.env

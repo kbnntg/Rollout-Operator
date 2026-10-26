@@ -1,0 +1,16 @@
+domain: sre.dev
+layout:
+- go.kubebuilder.io/v4
+projectName: rollout-operator
+repo: github.com/kbnntg/rollout-operator
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: sre.dev
+  group: delivery
+  kind: Rollout
+  path: github.com/kbnntg/rollout-operator/api/v1alpha1
+  version: v1alpha1
+version: "3"
