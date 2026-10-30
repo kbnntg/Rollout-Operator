@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"k8s.io/apimachinery/pkg/types"
 	"math"
 	"strconv"
 	"time"
@@ -419,7 +420,7 @@ func (r *RolloutReconciler) handleDelete(ctx context.Context, ro *deliveryv1alph
 // ---------------------------------------------------------------------------
 
 func (r *RolloutReconciler) applyCommand(ctx context.Context, ro *deliveryv1alpha1.Rollout) (bool, error) {
-	command, ok := ro.Annotations[AnnotationCommand]
+	command, ok := ro.Annotations[AnnotationCommand] // command就是用户输入
 	if !ok || command == "" {
 		return false, nil
 	}
@@ -479,7 +480,7 @@ func (r *RolloutReconciler) clearCommand(ctx context.Context, ro *deliveryv1alph
 	// Patch 会返回服务端对象并覆盖本地 Status，导致本周期内做好的状态变更丢失；
 	// 这里先保存状态，Patch 后再恢复。
 	status := ro.Status.DeepCopy()
-	patch := client.RawPatch(client.MergePatchType, []byte(fmt.Sprintf(
+	patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(
 		`{"metadata":{"annotations":{%q:null}}}`, AnnotationCommand,
 	)))
 	if err := r.Patch(ctx, ro, patch); err != nil {
