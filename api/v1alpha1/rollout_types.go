@@ -66,6 +66,7 @@ type AnalysisSpec struct {
 	// +kubebuilder:default=2
 	FailureThreshold int32            `json:"failureThreshold,omitempty"`
 	Metrics          []AnalysisMetric `json:"metrics"`
+	// Comparison       Comparison
 }
 
 /*
