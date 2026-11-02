@@ -14,6 +14,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/kbnntg/rollout-operator/internal/analysis" // 新增
+	"strings"                                              // 新增
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -74,6 +77,8 @@ type RolloutReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
+	// AnalysisClientFactory 允许测试注入自定义 Prometheus 客户端。
+	AnalysisClientFactory func(url string) (analysis.Client, error)
 }
 
 // +kubebuilder:rbac:groups=delivery.sre.dev,resources=rollouts,verbs=get;list;watch;create;update;patch;delete
@@ -126,6 +131,10 @@ func (r *RolloutReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 // SetupWithManager 注册控制器及其监听资源。
 func (r *RolloutReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// 第一次没有Prometheus客户端就添加为analysis模块里定义的Client值
+	if r.AnalysisClientFactory == nil {
+		r.AnalysisClientFactory = analysis.NewClient
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&deliveryv1alpha1.Rollout{}).
 		Owns(&appsv1.Deployment{}).
@@ -328,14 +337,36 @@ func (r *RolloutReconciler) advance(ctx context.Context, ro *deliveryv1alpha1.Ro
 			return ctrl.Result{RequeueAfter: duration - elapsed}, nil
 
 		case step.Analysis != nil:
-			// ---- 第 6 节在这里接入 Prometheus 指标门禁 ----
-			// 真正实现：采样 PromQL → 连续达标放行 / 连续失败自动回滚。
-			// 本节先无条件放行，先跑通步骤推进 → promote 的完整链路。
-			r.setCondition(&st.Conditions, ConditionTypeAnalysis, metav1.ConditionTrue, "AnalysisSkipped", "analysis gate is implemented in section 6", ro.Generation)
-			beginStep(st, st.CurrentStepIndex+1, now)
-
-		default:
-			beginStep(st, st.CurrentStepIndex+1, now)
+			// 采样 PromQL → 连续达标放行 / 连续失败自动回滚。 。
+			outcome, requeueAfter, err := r.runAnalysis(ctx, ro, step.Analysis, now)
+			// 分之一：出错了，比如Prometheus连不上，或者没配指标
+			if err != nil {
+				if rerr := r.rollback(ctx, ro, deliveryv1alpha1.PhaseFailed, "analys is error:"+err.Error(), "analysis_error"); rerr != nil {
+					return ctrl.Result{}, rerr
+				}
+				return ctrl.Result{}, nil
+			}
+			// 分之二：连续失败，指标爆表了
+			if outcome.failed {
+				message := "canary metrics breached threshold, rolled back automatically"
+				if breached := breachedMetrics(st, ro.Spec.Analysis); len(breached) > 0 {
+					message = fmt.Sprintf("canary metrics breached threshold (%s), rolled back automatically", strings.Join(breached, ", "))
+				}
+				// 拼装一个好看的message，带上失败的指标名
+				if rerr := r.rollback(ctx, ro, deliveryv1alpha1.PhaseFailed, message, "analysis_failed"); rerr != nil {
+					return ctrl.Result{}, rerr
+				}
+				return ctrl.Result{}, nil
+			}
+			// 分之三：连续成功，指标健康
+			if outcome.passed {
+				r.setCondition(&st.Conditions, ConditionTypeAnalysis, metav1.ConditionTrue, "AnalysisPassed", ",etrics look healthy", ro.Generation)
+				beginStep(st, st.CurrentStepIndex+1, now)
+				continue
+			}
+			// 分之四：正在采集中，还没达标
+			r.setCondition(&st.Conditions, ConditionTypeAnalysis, metav1.ConditionFalse, "AnalysisRunning", "collecting samples, waiting for thresholds", ro.Generation)
+			return ctrl.Result{RequeueAfter: requeueAfter}, nil
 		}
 	}
 
@@ -853,4 +884,175 @@ func podTemplateWithLabels(ro *deliveryv1alpha1.Rollout, template corev1.PodTemp
 
 func int32Ptr(v int32) *int32 {
 	return &v
+}
+
+const maxSamples = 60 // 每个指标保留的历史采样点上限，避免 status 膨胀
+
+type analysisOutcome struct {
+	passed bool
+	failed bool
+}
+
+func (r *RolloutReconciler) runAnalysis(ctx context.Context, ro *deliveryv1alpha1.Rollout, step *deliveryv1alpha1.AnalysisStep, now time.Time) (analysisOutcome, time.Duration, error) {
+	// 获取spec和status
+	spec := &ro.Spec
+	st := &ro.Status
+
+	// 获取spec的Analysis
+	analysisSpec := spec.Analysis
+	if analysisSpec == nil {
+		return analysisOutcome{}, 0, fmt.Errorf("spec.analysis is required when strategy contains analysis steps")
+	}
+	// 调用selectMetrics方法，把spec.Analysis的Metrics与step.Metrics传入进去把所需names的Metrics输出一下
+	selected := selectMetrics(analysisSpec.Metrics, step.Metrics)
+	if len(selected) == 0 {
+		return analysisOutcome{}, 0, fmt.Errorf("no metrics selected for analysis step")
+	}
+
+	// 间隔，默认10s
+	interval := analysis.IntervalOf(analysisSpec)
+	if st.LastAnalysisAt != nil {
+		elapsed := now.Sub(st.LastAnalysisAt.Time)
+		// 如果冷却低于10s就输出当前休息时间
+		if elapsed < interval {
+			return analysisOutcome{}, interval - elapsed, nil
+		}
+	}
+
+	// cli是获得了Prometheus的URL配置参数
+	cli, err := r.analysisClient(analysisSpec.PrometheusURL)
+	if err != nil {
+		return analysisOutcome{}, 0, err
+	}
+
+	ensureAnalysisStatus(st, selected)
+
+	allPassed := true
+	anyFailed := false
+
+	// 遍历获取的指定的names的Metrics
+	for _, metric := range selected {
+		// 找metric的Name，找到了就返回st对应的Name的指针，连对了几次，连错了几次
+		entry := analysisEntry(st, metric.Name)
+		// value是PromQL查询语句的结果
+		value, qerr := cli.Query(ctx, metric.Query)
+		// 要是失败就增加失败次数
+		if qerr != nil {
+			entry.Failures++
+			entry.Successes = 0
+			appendSample(entry, now, 0, false)
+			metrics.AnalysisSamples.WithLabelValues(ro.Namespace, metric.Name, "false").Inc()
+			if entry.Failures >= analysis.FailureThresholdOf(analysisSpec) {
+				anyFailed = true
+			}
+			allPassed = false
+			continue
+		}
+		// 拿value值与metric中定义的阈值进行比较
+		passed := analysis.Pass(value, metric.Threshold, analysis.ComparisonOf(metric))
+
+		// 找到的指针，当前时间查找的值是否通过了阈值，添加到sample中
+		appendSample(entry, now, value, passed)
+
+		// 输出到AnalysisSamples中统计指标采样次数，passed区分通过与失败
+		metrics.AnalysisSamples.WithLabelValues(ro.Namespace, metric.Name, strconv.FormatBool(passed)).Inc()
+		// 如果是这样，没有大于阈值就成功+1
+		if passed {
+			entry.Successes++
+			entry.Failures = 0
+		} else {
+			entry.Failures++
+			entry.Successes = 0
+			if entry.Failures >= analysis.FailureThresholdOf(analysisSpec) {
+				anyFailed = true
+			}
+		}
+		if entry.Successes < analysis.SuccessThresholdOf(analysisSpec) {
+			allPassed = false
+		}
+	}
+	// 刷新时间段
+	st.LastAnalysisAt = &metav1.Time{Time: now}
+
+	if anyFailed {
+		return analysisOutcome{failed: true}, interval, nil
+	}
+	return analysisOutcome{passed: allPassed}, interval, nil
+}
+
+func (r *RolloutReconciler) analysisClient(url string) (analysis.Client, error) {
+	if r.AnalysisClientFactory == nil {
+		return analysis.NewClient(url)
+	}
+	return r.AnalysisClientFactory(url)
+}
+
+func ensureAnalysisStatus(st *deliveryv1alpha1.RolloutStatus, metrics []deliveryv1alpha1.AnalysisMetric) {
+	for _, metric := range metrics {
+		if !hasAnalysisEntry(st, metric.Name) {
+			st.Analysis = append(st.Analysis, deliveryv1alpha1.MetricAnalysisStatus{Name: metric.Name})
+		}
+	}
+}
+
+func hasAnalysisEntry(st *deliveryv1alpha1.RolloutStatus, name string) bool {
+	for i := range st.Analysis {
+		if st.Analysis[i].Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func analysisEntry(st *deliveryv1alpha1.RolloutStatus, name string) *deliveryv1alpha1.MetricAnalysisStatus {
+	for i := range st.Analysis {
+		if st.Analysis[i].Name == name {
+			return &st.Analysis[i]
+		}
+	}
+	st.Analysis = append(st.Analysis, deliveryv1alpha1.MetricAnalysisStatus{Name: name})
+	return &st.Analysis[len(st.Analysis)-1]
+}
+
+func appendSample(entry *deliveryv1alpha1.MetricAnalysisStatus, at time.Time, value float64, passed bool) {
+	entry.Samples = append(entry.Samples, deliveryv1alpha1.MetricSample{
+		Time:   metav1.Time{Time: at},
+		Value:  value,
+		Passed: passed,
+	})
+	if len(entry.Samples) > maxSamples {
+		entry.Samples = entry.Samples[len(entry.Samples)-maxSamples:]
+	}
+}
+
+// breachedMetrics 返回达到失败阈值的指标名，用于生成可读的回滚原因。
+func breachedMetrics(st *deliveryv1alpha1.RolloutStatus, spec *deliveryv1alpha1.AnalysisSpec) []string {
+	if spec == nil {
+		return nil
+	}
+	threshold := analysis.FailureThresholdOf(spec)
+	names := make([]string, 0, len(st.Analysis))
+	for i := range st.Analysis {
+		if st.Analysis[i].Failures >= threshold {
+			names = append(names, st.Analysis[i].Name)
+		}
+	}
+	return names
+}
+
+func selectMetrics(all []deliveryv1alpha1.AnalysisMetric, names []string) []deliveryv1alpha1.AnalysisMetric {
+	if len(names) == 0 {
+		return all
+	}
+	wanted := make(map[string]bool, len(names))
+	for _, name := range names {
+		wanted[name] = true
+	}
+	selected := make([]deliveryv1alpha1.AnalysisMetric, 0, len(names))
+	for _, metric := range all {
+		if wanted[metric.Name] {
+			selected = append(selected, metric)
+		}
+	}
+	return selected
 }
