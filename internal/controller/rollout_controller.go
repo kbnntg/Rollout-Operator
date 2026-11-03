@@ -143,10 +143,7 @@ func (r *RolloutReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// ---------------------------------------------------------------------------
 // 主流程
-// ---------------------------------------------------------------------------
-
 func (r *RolloutReconciler) reconcileRollout(ctx context.Context, ro *deliveryv1alpha1.Rollout) (ctrl.Result, error) {
 	spec := &ro.Spec
 	st := &ro.Status
@@ -446,10 +443,7 @@ func (r *RolloutReconciler) handleDelete(ctx context.Context, ro *deliveryv1alph
 	return nil
 }
 
-// ---------------------------------------------------------------------------
 // 命令处理
-// ---------------------------------------------------------------------------
-
 func (r *RolloutReconciler) applyCommand(ctx context.Context, ro *deliveryv1alpha1.Rollout) (bool, error) {
 	command, ok := ro.Annotations[AnnotationCommand] // command就是用户输入
 	if !ok || command == "" {
@@ -521,10 +515,7 @@ func (r *RolloutReconciler) clearCommand(ctx context.Context, ro *deliveryv1alph
 	return nil
 }
 
-// ---------------------------------------------------------------------------
 // 资源维护
-// ---------------------------------------------------------------------------
-
 func (r *RolloutReconciler) stableTemplate(ctx context.Context, ro *deliveryv1alpha1.Rollout, canaryActive bool) (*corev1.PodTemplateSpec, error) {
 	if !canaryActive {
 		return &ro.Spec.Template, nil
@@ -694,10 +685,7 @@ func (r *RolloutReconciler) deleteCanaryResources(ctx context.Context, ro *deliv
 	return nil
 }
 
-// ---------------------------------------------------------------------------
 // 状态辅助
-// ---------------------------------------------------------------------------
-
 func (r *RolloutReconciler) setCondition(conditions *[]metav1.Condition, conditionType string, status metav1.ConditionStatus, reason, message string, generation int64) {
 	apimeta.SetStatusCondition(conditions, metav1.Condition{
 		Type:               conditionType,
@@ -731,10 +719,7 @@ func resetAnalysis(st *deliveryv1alpha1.RolloutStatus) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // 纯函数工具
-// ---------------------------------------------------------------------------
-
 func normalize(ro *deliveryv1alpha1.Rollout) {
 	spec := &ro.Spec
 	if spec.Replicas == nil {
