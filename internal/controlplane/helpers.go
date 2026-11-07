@@ -24,23 +24,23 @@ func (s *Server) writeJson(w http.ResponseWriter, status int, payload interface{
 }
 
 // 错误响应
-func (s *Server) withError(w http.ResponseWriter, status int, message string){
-	s.writeJson(w, status, map[string]string("error": message))
+func (s *Server) withError(w http.ResponseWriter, status int, message string) {
+	s.writeJson(w, status, map[string]string{"error": message})
 }
 
 // 对路径进行规范，防止路径遍历
-func Path(urlPath string) string{
+func Path(urlPath string) string {
 	// 对获取的路径URL进行+/与清除
-	cleaned := strings.TrimPrefix(path.Clean("/" + urlPath), "/")
+	cleaned := strings.TrimPrefix(path.Clean("/"+urlPath), "/")
 	// 会清除../前的根如果是个/index这种类型就默认返回个index.html
-	if cleaned == ""{
+	if cleaned == "" {
 		return "index.html"
 	}
 	return cleaned
 }
 
 // 获取静态资源加入到Content-Type
-func contentTypeOf(name string) string{
+func contentTypeOf(name string) string {
 	lower := strings.ToLower(name)
 	switch {
 	case strings.HasSuffix(lower, ".html"):
@@ -66,7 +66,7 @@ func contentTypeOf(name string) string{
 
 // 测试替换时间函数
 var (
-	nowFunc = time.Now
+	nowFunc   = time.Now
 	sinceFunc = time.Since
 )
 
@@ -77,13 +77,13 @@ type statusRecorder struct {
 }
 
 // 接收状态码并放入到WriteHeader中
-func (r *statusRecorder)WriteHeader(code int){
+func (r *statusRecorder) WriteHeader(code int) {
 	r.status = code
 	r.ResponseWriter.WriteHeader(code)
 }
 
 // Flush事先http.Flusher，报证SSE可以正常流通
-func (r *statusRecorder) Flush(){
+func (r *statusRecorder) Flush() {
 	if flusher, ok := r.ResponseWriter.(http.Flusher); ok {
 		flusher.Flush()
 	}
