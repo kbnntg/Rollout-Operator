@@ -73,6 +73,7 @@ type MetricView struct {
 	LatestAt    string       `json:"latestAt,omitempty"`
 	Passed      bool         `json:"passed"`
 	Samples     []SampleView `json:"samples"`
+	Description string       `json:"description,omitempty"`
 }
 
 // 金丝雀发布流程图
