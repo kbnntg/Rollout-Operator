@@ -1,0 +1,48 @@
+# 当有人创建、更新Rollout资源的时候把请求发送到这里来
+# 与register.go进行联动的
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: rollout-operator-mutating-webhook-configuration
+webhooks:
+  - admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: rollout-operator-webhook-service
+        namespace: rollout-system
+        path: /mutate-delivery-sre-dev-v1alpha1-rollout
+        # 端口映射443-9443
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: mrollout.kb.io
+    sideEffects: None
+    rules:
+      - apiGroups: ["delivery.sre.dev"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["rollouts"]
+    timeoutSeconds: 10
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: rollout-operator-validating-webhook-configuration
+webhooks:
+  - admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: rollout-operator-webhook-service
+        namespace: rollout-system
+        path: /validate-delivery-sre-dev-v1alpha1-rollout
+        port: 443
+    name: vrollout.kb.io
+    sideEffects: None
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    rules:
+      - apiGroups: ["delivery.sre.dev"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["rollouts"]
+    timeoutSeconds: 10
