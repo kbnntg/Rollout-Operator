@@ -1,0 +1,27 @@
+# 给资源操作权限
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rollout-operator-manager-role
+rules:
+  - apiGroups: ["delivery.sre.dev"]
+    resources: ["rollouts"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["delivery.sre.dev"]
+    resources: ["rollouts/finalizers"]
+    verbs: ["update"]
+  - apiGroups: ["delivery.sre.dev"]
+    resources: ["rollouts/status"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
