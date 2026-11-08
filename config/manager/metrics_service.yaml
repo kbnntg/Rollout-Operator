@@ -1,0 +1,18 @@
+# Service
+
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/name: rollout-operator
+    control-plane: controller-manager
+  name: rollout-operator-metrics
+  namespace: rollout-system
+spec:
+  ports:
+    - name: metrics
+      port: 8080
+      protocol: TCP
+      targetPort: metrics
+  selector:
+    control-plane: controller-manager
