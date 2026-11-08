@@ -5,6 +5,7 @@ import (
 	"context"
 	"io/fs"
 	"net/http"
+	"path"
 
 	"github.com/go-logr/logr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -152,25 +153,30 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 // 静态资源
 func (s *Server) static() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 获取前端打包的文件，尝试读index.html，如果读不到说明前端没打包，直接报错
 		asset, err := fs.ReadFile(s.WebAssets, "index.html")
-
 		if err != nil {
-			http.Error(w, "web console assets are not embedded; build the frontend first (make web)", http.StatusServiceUnavailable)
+			http.Error(w, "web console assets are not embedded; build the frontend first (make web)",
+				http.StatusServiceUnavailable)
 			return
 		}
 
-		// 如果请求的不是index.html（比如请求了app.js）
-		if assetPath := Path(r.URL.Path); assetPath != "index.html" {
-			if data, err := fs.ReadFile(s.WebAssets, assetPath); err != nil {
-				// 加上头、缓存时间
+		assetPath := Path(r.URL.Path)
+		if assetPath != "index.html" {
+			if data, err := fs.ReadFile(s.WebAssets, assetPath); err == nil { // ← 存在才发
 				w.Header().Set("Content-Type", contentTypeOf(assetPath))
-				w.Header().Set("Cache-Control", "publish, max-age=3600")
+				w.Header().Set("Cache-Control", "public, max-age=3600") // ← publish 是拼错的
 				_, _ = w.Write(data)
 				return
 			}
+			// 建议：带扩展名的资源找不到就 404，别回落成 HTML，
+			// 否则少个 chunk 会变成「200 + HTML」的诡异白屏
+			if ext := path.Ext(assetPath); ext != "" {
+				http.NotFound(w, r)
+				return
+			}
 		}
-		// 没有就一律返回index.html
+
+		// 其余路径走 SPA 回落
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
 		_, _ = w.Write(asset)
