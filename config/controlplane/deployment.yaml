@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/name: rollout-console
+    control-plane: rollout-console
+  name: rollout-console
+  namespace: rollout-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: rollout-console
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: console
+      labels:
+        app.kubernetes.io/name: rollout-console
+        control-plane: rollout-console
+    spec:
+      containers:
+        - args:
+            # 监听端口与命名空间
+            - --addr=:8090
+            - --namespace=rollout-system
+          command:
+            - /controlplane
+          env:
+            # 之前定义的Sectet中的属性
+            - name: CONTROLPLANE_USERS
+              valueFrom:
+                secretKeyRef:
+                  key: CONTROLPLANE_USERS
+                  name: rollout-console-auth
+            - name: CONTROLPLANE_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  key: CONTROLPLANE_JWT_SECRET
+                  name: rollout-console-auth
+          image: kbnntg/rollout-console:latest
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            httpGet:
+              path: /api/healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          name: console
+          ports:
+            - containerPort: 8090
+              name: http
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /api/healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 300m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: rollout-console
+      terminationGracePeriodSeconds: 30

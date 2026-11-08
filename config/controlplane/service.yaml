@@ -1,0 +1,17 @@
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/name: rollout-console
+  namespace: rollout-system
+  name: rollout-console
+spec:
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: http
+  selector:
+    control-plane: rollout-console
+  type: ClusterIP

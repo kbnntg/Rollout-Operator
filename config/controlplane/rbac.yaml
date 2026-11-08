@@ -1,0 +1,41 @@
+# rollout-console板锭刀ServiceAccount中
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: rollout-console
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: rollout-console
+# 绑定到这里
+subjects:
+  - kind: ServiceAccount
+    name: rollout-console
+    namespace: rollout-system
+---
+# 局部写权限，在rollout-system命名空间中对Configmap的操作
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: rollout-system
+  name: rollout-console-audit
+rules:
+  # 操作
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "create", "update", "patch"]
+---
+# 把Role正式授予给Console的ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rollout-console-audit
+  namespace: rollout-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: rollout-console-audit
+subjects:
+  - kind: ServiceAccount
+    name: rollout-console
+    namespace: rollout-system
