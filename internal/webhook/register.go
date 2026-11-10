@@ -207,7 +207,7 @@ func validatesteps(steps []deliveryv1alpha1.Step) error {
 			count++
 		}
 		if count != 1 {
-			return fmt.Errorf("步骤%d必须且只能设置setweight/pause/analysis之一")
+			return fmt.Errorf("步骤%d必须且只能设置setweight/pause/analysis之一", i)
 		}
 	}
 	return nil
