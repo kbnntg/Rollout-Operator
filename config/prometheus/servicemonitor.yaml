@@ -1,0 +1,42 @@
+# 需要集群已安装 Prometheus Operator（kube-prometheus-stack）。
+# 若用其他方式安装 Prometheus，请改用 podAnnotations 抓取。
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    release: kube-prometheus-stack
+  name: rollout-operator
+  namespace: rollout-system
+spec:
+  endpoints:
+    - interval: 30s
+      path: /metrics
+      port: metrics
+    - interval: 30s
+      path: /metrics
+      port: http
+  namespaceSelector:
+    matchNames:
+      - rollout-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rollout-operator
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    release: kube-prometheus-stack
+  name: rollout-console
+  namespace: rollout-system
+spec:
+  endpoints:
+    - interval: 30s
+      path: /metrics
+      port: http
+  namespaceSelector:
+    matchNames:
+      - rollout-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rollout-console
