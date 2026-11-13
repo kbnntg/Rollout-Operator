@@ -230,7 +230,7 @@ func TestInitialReconcileCreatesStableResources(t *testing.T) {
 		t.Fatalf("stable deployment track label = %s", dep.Labels[LabelTrack])
 	}
 	// 断言副本数为4
-	if dep.Status.Replicas != 4 {
+	if *dep.Spec.Replicas != 4 {
 		t.Fatalf("stable replicas = %d, want 4", *dep.Spec.Replicas)
 	}
 	// 断言不能有canary发布
